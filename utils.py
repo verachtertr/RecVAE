@@ -5,8 +5,40 @@ from scipy import sparse
 import pandas as pd
 import os
 import bottleneck as bn
+import logging
+
+from recpack.preprocessing.filters import MinItemsPerUser, MinUsersPerItem
+from recpack.preprocessing.preprocessors import DataFramePreprocessor
+
+from recpack.splitters.scenarios import TrainingInTestOutTimed
+
+def load_data(file_name, item_col, user_col, timestamp_col, min_users_per_item, min_items_per_user):
+    logging.info(f"loading data from {file_name}")
+    data = pandas.read_csv(file_name)
+    # data = data.sample(100_000)
+    min_users_filter = MinUsersPerItem(min_users_per_item, user_col, item_col, timestamp_col)
+    min_items_filter = MinItemsPerUser(min_items_per_user, user_col, item_col, timestamp_col)
+
+    filt_data = min_users_filter.apply(data)
+    filt_data = min_items_filter.apply(filt_data)
+
+    preprocessor = DataFramePreprocessor(item_col, user_col, value_id=None, timestamp_id=timestamp_col, dedupe=True)
+    mat, = preprocessor.process(filt_data)
+
+    logging.info(f"Data loaded, matrix shape = {mat.shape}")
+    return mat
 
 
+def split_into_train_and_test(data, t, validation=True):
+    scenario = TrainingInTestOutTimed(t, validation)
+    scenario.split(data)
+    return (
+        scenario.train_X.binary_values,
+        scenario.validation_data_in.binary_values,
+        scenario.validation_data_out.binary_values,
+        scenario.test_data_in.binary_values,
+        scenario.test_data_out.binary_values
+    )
 
 
 def load_train_data(csv_file, n_items, n_users, global_indexing=False):

@@ -6,7 +6,7 @@ from torch import optim
 import random
 from copy import deepcopy
 
-from utils import get_data, ndcg, recall
+from utils import load_data, split_into_train_and_test, ndcg, recall
 from model import VAE
 
 import argparse
@@ -22,6 +22,14 @@ parser.add_argument('--n-epochs', type=int, default=50)
 parser.add_argument('--n-enc_epochs', type=int, default=3)
 parser.add_argument('--n-dec_epochs', type=int, default=1)
 parser.add_argument('--not-alternating', type=bool, default=False)
+parser.add_argument('--user-col', type=str, default='user_id')
+parser.add_argument('--item-col', type=str, default='item_id')
+parser.add_argument('--timestamp-col', type=str, default='timestamp')
+parser.add_argument('--min-users-per-item', type=int, default=3)
+parser.add_argument('--min-items-per-user', type=int, default=3)
+parser.add_argument('--t', type=float, default=None)
+
+
 args = parser.parse_args()
 
 seed = 1337
@@ -31,8 +39,22 @@ torch.manual_seed(seed)
 
 device = torch.device("cuda:0")
 
-data = get_data(args.dataset)
-train_data, valid_in_data, valid_out_data, test_in_data, test_out_data = data
+# Load data using recpack
+
+data = load_data(
+    args.dataset,
+    args.item_col,
+    args.user_col,
+    args.timestamp_col,
+    args.min_users_per_item,
+    args.min_items_per_user
+)
+
+t = args.t
+if t is None:
+    t = data.timestamps.min() + ((data.timestamps.max() - data.timestamps.min())*0.7)
+
+train_data, valid_in_data, valid_out_data, test_in_data, test_out_data = split_into_train_and_test(data, t)
 
 
 def generate(batch_size, device, data_in, data_out=None, shuffle=False, samples_perc_per_epoch=1):
