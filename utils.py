@@ -30,7 +30,7 @@ def load_data(file_name, item_col, user_col, timestamp_col, min_users_per_item, 
 
 
 def split_into_train_and_test(data, t, validation=True):
-    scenario = TrainingInTestOutTimed(t, validation)
+    scenario = TrainingInTestOutTimed(t, validation=validation)
     scenario.split(data)
     return (
         scenario.train_X.binary_values,
