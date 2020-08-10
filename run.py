@@ -56,6 +56,13 @@ if t is None:
 
 train_data, valid_in_data, valid_out_data, test_in_data, test_out_data = split_into_train_and_test(data, t)
 
+# Log the shapes and nnz of all the data segments
+print(f"train_data - shape: {train_data.shape} -- nnz: {train_data.nnz}")
+print(f"valid_in_data - shape: {valid_in_data.shape} -- nnz: {valid_in_data.nnz}")
+print(f"valid_out_data - shape: {valid_out_data.shape} -- nnz: {valid_out_data.nnz}")
+print(f"test_in_data - shape: {test_in_data.shape} -- nnz: {test_in_data.nnz}")
+print(f"test_out_data - shape: {test_out_data.shape} -- nnz: {test_out_data.nnz}")
+
 
 def generate(batch_size, device, data_in, data_out=None, shuffle=False, samples_perc_per_epoch=1):
     assert 0 < samples_perc_per_epoch <= 1
