@@ -55,6 +55,20 @@ if t is None:
     t = data.timestamps.min() + ((data.timestamps.max() - data.timestamps.min())*0.7)
 
 train_data, valid_in_data, valid_out_data, test_in_data, test_out_data = split_into_train_and_test(data, t)
+# subselect the nonzero users:
+train_users = set(train_data.nonzero()[0])
+validation_users = set(valid_in_data.nonzero()[0]).intersection(
+    valid_out_data.nonzero()[0])
+test_users = set(test_in_data.nonzero()[0]).intersection(
+    test_out_data.nonzero()[0]
+)
+
+train_data = train_data[list(train_users)]
+valid_in_data = valid_in_data[list(validation_users)]
+valid_out_data = valid_out_data[list(validation_users)]
+
+test_in_data = test_in_data[list(test_users)]
+test_out_data = test_out_data[list(test_users)]
 
 # Log the shapes and nnz of all the data segments
 print(f"train_data - shape: {train_data.shape} -- nnz: {train_data.nnz}")
