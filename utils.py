@@ -14,7 +14,7 @@ from recpack.splitters.scenarios import TrainingInTestOutTimed
 
 def load_data(file_name, item_col, user_col, timestamp_col, min_users_per_item, min_items_per_user):
     logging.info(f"loading data from {file_name}")
-    data = pandas.read_csv(file_name)
+    data = pd.read_csv(file_name)
     # data = data.sample(100_000)
     min_users_filter = MinUsersPerItem(min_users_per_item, user_col, item_col, timestamp_col)
     min_items_filter = MinItemsPerUser(min_items_per_user, user_col, item_col, timestamp_col)
