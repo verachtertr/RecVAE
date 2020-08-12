@@ -95,8 +95,8 @@ algorithm = RecVAE(
     n_dec_epochs=args.n_dec_epochs,
     seed=seed,
     learning_rate=args.lr,
-    dim_bottleneck_layer=args.latent_dimension,
-    dim_hidden_layer=args.hidden_dimension,
+    dim_bottleneck_layer=args.latent_dim,
+    dim_hidden_layer=args.hidden_dim,
     gamma=args.gamma,
     beta=args.beta
 )
