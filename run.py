@@ -165,7 +165,7 @@ def evaluate_recpack(model, data_in, data_out, metrics,
                      samples_perc_per_epoch=1, batch_size=500):
     metrics = deepcopy(metrics)
     model.eval()
-
+    print(f"shape of output: {data_out.shape}")
     full_expected = scipy.sparse.lil_matrix(data_out.shape)
     full_predicted = scipy.sparse.lil_matrix(data_out.shape)
     for i, batch in enumerate(generate(
@@ -178,6 +178,7 @@ def evaluate_recpack(model, data_in, data_out, metrics,
 
         ratings_in = batch.get_ratings_to_dev()
         ratings_out = batch.get_ratings(is_out=True)
+        print(ratings_in.shape, ratings_out.shape)
 
         ratings_pred = model(
             ratings_in,
@@ -185,6 +186,7 @@ def evaluate_recpack(model, data_in, data_out, metrics,
 
         start = i * batch_size
         end = (i * batch_size) + batch_size
+        print(ratings_pred.shape)
         full_predicted[start:end] = ratings_pred
         full_expected[start:end] = ratings_out
 
@@ -274,7 +276,11 @@ for epoch in range(args.n_epochs):
 
 test_metrics = [NDCGK(100), RecallK(20), RecallK(50)]
 
-final_scores = evaluate(model_best, test_in_data, test_out_data, test_metrics)
+final_scores = evaluate_recpack(
+    model_best,
+    test_in_data,
+    test_out_data,
+    test_metrics)
 
 for metric, score in zip(test_metrics, final_scores):
     print(f"{metric.name}:\t{score:.4f}")
