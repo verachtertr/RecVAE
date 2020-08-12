@@ -10,6 +10,7 @@ from copy import deepcopy
 from utils import load_data, split_into_train_and_test, ndcg, recall
 from model import VAE
 from recpack.metrics import NDCGK, RecallK
+from recpack.algorithms import RecVAE
 
 import argparse
 parser = argparse.ArgumentParser()
@@ -56,6 +57,8 @@ t = args.t
 if t is None:
     t = data.timestamps.min() + ((data.timestamps.max() - data.timestamps.min()) * 0.7)
 
+print(f"splitting at t = {t}")
+
 train_data, valid_in_data, valid_out_data, test_in_data, test_out_data = split_into_train_and_test(
     data, t)
 # subselect the nonzero users:
@@ -82,6 +85,40 @@ print(
 print(f"test_in_data - shape: {test_in_data.shape} -- nnz: {test_in_data.nnz}")
 print(
     f"test_out_data - shape: {test_out_data.shape} -- nnz: {test_out_data.nnz}")
+
+# THIS IS RECPACK THINGS:
+
+algorithm = RecVAE(
+    batch_size=args.batch_size,
+    max_epochs=args.n_epochs,
+    n_enc_epochs=args.n_enc_epochs,
+    n_dec_epochs=args.n_dec_epochs,
+    seed=seed,
+    learning_rate=args.l_r,
+    dim_bottleneck_layer=args.latent_dimenstion,
+    dim_hidden_layer=args.hidden_dimension,
+    gamma=args.gamma,
+    beta=args.beta
+)
+
+# Train the model.
+algorithm.fit(train_data, validation_data=(
+    valid_in_data,
+    valid_out_data))
+
+# predict
+prediction = algorithm.predict(test_in_data)
+
+print(f"prediction shape: {prediction.shape}")
+print(
+    f"nonzero predicted users: {len(set(prediction.nonzero()[0]))}")
+print(
+    f"nonzero expected users: {len(set(test_out_data.nonzero()[0]))}"
+)
+froomle_metrics = [NDCGK(100), RecallK(20), RecallK(50)]
+# Evaluate:
+for metric in froomle_metrics:
+    metric.calculate(test_out_data, prediction)
 
 
 def generate(batch_size, device, data_in, data_out=None,
@@ -285,5 +322,10 @@ final_scores = evaluate_recpack(
     test_out_data,
     test_metrics)
 
+print("Original results")
 for metric, score in zip(test_metrics, final_scores):
     print(f"{metric.name}:\t{score:.4f}")
+
+print("Recpack results")
+for metric in froomle_metrics:
+    print(f"{metric.name}: \t {metric.value}")
