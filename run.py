@@ -192,7 +192,7 @@ def evaluate_recpack(model, data_in, data_out, metrics,
         full_expected[start:end] = ratings_out
 
     for m in metrics:
-        m.calculate(full_expected.tocsr(), full_predicted.tocsr)
+        m.calculate(full_expected.tocsr(), full_predicted.tocsr())
 
     return [x.value for x in metrics]
 
