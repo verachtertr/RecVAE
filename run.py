@@ -4,10 +4,12 @@ import torch
 from torch import optim
 
 import random
+import scipy.sparse
 from copy import deepcopy
 
 from utils import load_data, split_into_train_and_test, ndcg, recall
 from model import VAE
+from recpack.metrics import NDCGK, RecallK
 
 import argparse
 parser = argparse.ArgumentParser()
@@ -52,9 +54,10 @@ data = load_data(
 
 t = args.t
 if t is None:
-    t = data.timestamps.min() + ((data.timestamps.max() - data.timestamps.min())*0.7)
+    t = data.timestamps.min() + ((data.timestamps.max() - data.timestamps.min()) * 0.7)
 
-train_data, valid_in_data, valid_out_data, test_in_data, test_out_data = split_into_train_and_test(data, t)
+train_data, valid_in_data, valid_out_data, test_in_data, test_out_data = split_into_train_and_test(
+    data, t)
 # subselect the nonzero users:
 train_users = set(train_data.nonzero()[0])
 validation_users = set(valid_in_data.nonzero()[0]).intersection(
@@ -72,25 +75,29 @@ test_out_data = test_out_data[list(test_users)]
 
 # Log the shapes and nnz of all the data segments
 print(f"train_data - shape: {train_data.shape} -- nnz: {train_data.nnz}")
-print(f"valid_in_data - shape: {valid_in_data.shape} -- nnz: {valid_in_data.nnz}")
-print(f"valid_out_data - shape: {valid_out_data.shape} -- nnz: {valid_out_data.nnz}")
+print(
+    f"valid_in_data - shape: {valid_in_data.shape} -- nnz: {valid_in_data.nnz}")
+print(
+    f"valid_out_data - shape: {valid_out_data.shape} -- nnz: {valid_out_data.nnz}")
 print(f"test_in_data - shape: {test_in_data.shape} -- nnz: {test_in_data.nnz}")
-print(f"test_out_data - shape: {test_out_data.shape} -- nnz: {test_out_data.nnz}")
+print(
+    f"test_out_data - shape: {test_out_data.shape} -- nnz: {test_out_data.nnz}")
 
 
-def generate(batch_size, device, data_in, data_out=None, shuffle=False, samples_perc_per_epoch=1):
+def generate(batch_size, device, data_in, data_out=None,
+             shuffle=False, samples_perc_per_epoch=1):
     assert 0 < samples_perc_per_epoch <= 1
-    
+
     total_samples = data_in.shape[0]
     samples_per_epoch = int(total_samples * samples_perc_per_epoch)
-    
+
     if shuffle:
         idxlist = np.arange(total_samples)
         np.random.shuffle(idxlist)
         idxlist = idxlist[:samples_per_epoch]
     else:
         idxlist = np.arange(samples_per_epoch)
-    
+
     for st_idx in range(0, samples_per_epoch, batch_size):
         end_idx = min(st_idx + batch_size, samples_per_epoch)
         idx = idxlist[st_idx:end_idx]
@@ -104,66 +111,71 @@ class Batch:
         self._idx = idx
         self._data_in = data_in
         self._data_out = data_out
-    
+
     def get_idx(self):
         return self._idx
-    
+
     def get_idx_to_dev(self):
         return torch.LongTensor(self.get_idx()).to(self._device)
-        
+
     def get_ratings(self, is_out=False):
         data = self._data_out if is_out else self._data_in
         return data[self._idx]
-    
+
     def get_ratings_to_dev(self, is_out=False):
         return torch.Tensor(
             self.get_ratings(is_out).toarray()
         ).to(self._device)
 
 
-def evaluate(model, data_in, data_out, metrics, samples_perc_per_epoch=1, batch_size=500):
+def evaluate(model, data_in, data_out, metrics,
+             samples_perc_per_epoch=1, batch_size=500):
     metrics = deepcopy(metrics)
     model.eval()
-    
-    for m in metrics:
-        m['score'] = []
-    
-    for batch in generate(batch_size=batch_size,
-                          device=device,
-                          data_in=data_in,
-                          data_out=data_out,
-                          samples_perc_per_epoch=samples_perc_per_epoch
-                         ):
-        
+
+    full_expected = scipy.sparse.lil_matrix(data_out.shape)
+    full_predicted = scipy.sparse.lil_matrix(data_out.shape)
+    for i, batch in enumerate(generate(
+        batch_size=batch_size,
+        device=device,
+        data_in=data_in,
+        data_out=data_out,
+        samples_perc_per_epoch=samples_perc_per_epoch
+    )):
+
         ratings_in = batch.get_ratings_to_dev()
         ratings_out = batch.get_ratings(is_out=True)
-    
-        ratings_pred = model(ratings_in, calculate_loss=False).cpu().detach().numpy()
-        
-        if not (data_in is data_out):
-            ratings_pred[batch.get_ratings().nonzero()] = -np.inf
-            
-        for m in metrics:
-            m['score'].append(m['metric'](ratings_pred, ratings_out, k=m['k']))
+
+        ratings_pred = model(
+            ratings_in,
+            calculate_loss=False).cpu().detach().numpy()
+
+        start = i * batch_size
+        end = (i * batch_size) + batch_size
+        full_predicted[start:end] = ratings_pred
+        full_expected[start:end] = ratings_out
 
     for m in metrics:
-        m['score'] = np.concatenate(m['score']).mean()
-        
-    return [x['score'] for x in metrics]
+        m.calculate(full_expected.tocsr(), full_predicted.to_csr)
+
+    return [x.value for x in metrics]
 
 
-def run(model, opts, train_data, batch_size, n_epochs, beta, gamma, dropout_rate):
+def run(model, opts, train_data, batch_size,
+        n_epochs, beta, gamma, dropout_rate):
     model.train()
     for epoch in range(n_epochs):
-        for batch in generate(batch_size=batch_size, device=device, data_in=train_data, shuffle=True):
+        for batch in generate(batch_size=batch_size,
+                              device=device, data_in=train_data, shuffle=True):
             ratings = batch.get_ratings_to_dev()
 
             for optimizer in opts:
                 optimizer.zero_grad()
-                
-            _, loss = model(ratings, beta=beta, gamma=gamma, dropout_rate=dropout_rate)
+
+            _, loss = model(ratings, beta=beta, gamma=gamma,
+                            dropout_rate=dropout_rate)
             loss.backward()
-            
+
             for optimizer in opts:
                 optimizer.step()
 
@@ -199,11 +211,18 @@ optimizer_decoder = optim.Adam(decoder_params, lr=args.lr)
 for epoch in range(args.n_epochs):
 
     if args.not_alternating:
-        run(opts=[optimizer_encoder, optimizer_decoder], n_epochs=1, dropout_rate=0.5, **learning_kwargs)
+        run(opts=[optimizer_encoder, optimizer_decoder],
+            n_epochs=1, dropout_rate=0.5, **learning_kwargs)
     else:
-        run(opts=[optimizer_encoder], n_epochs=args.n_enc_epochs, dropout_rate=0.5, **learning_kwargs)
+        run(opts=[optimizer_encoder],
+            n_epochs=args.n_enc_epochs,
+            dropout_rate=0.5,
+            **learning_kwargs)
         model.update_prior()
-        run(opts=[optimizer_decoder], n_epochs=args.n_dec_epochs, dropout_rate=0, **learning_kwargs)
+        run(opts=[optimizer_decoder],
+            n_epochs=args.n_dec_epochs,
+            dropout_rate=0,
+            **learning_kwargs)
 
     train_scores.append(
         evaluate(model, train_data, train_data, metrics, 0.01)[0]
@@ -211,20 +230,18 @@ for epoch in range(args.n_epochs):
     valid_scores.append(
         evaluate(model, valid_in_data, valid_out_data, metrics, 1)[0]
     )
-    
+
     if valid_scores[-1] > best_ndcg:
         best_ndcg = valid_scores[-1]
         model_best.load_state_dict(deepcopy(model.state_dict()))
-        
 
     print(f'epoch {epoch} | valid ndcg@100: {valid_scores[-1]:.4f} | ' +
           f'best valid: {best_ndcg:.4f} | train ndcg@100: {train_scores[-1]:.4f}')
 
 
-    
-test_metrics = [{'metric': ndcg, 'k': 100}, {'metric': recall, 'k': 20}, {'metric': recall, 'k': 50}]
+test_metrics = [NDCGK(100), RecallK(20), RecallK(50)]
 
 final_scores = evaluate(model_best, test_in_data, test_out_data, test_metrics)
 
 for metric, score in zip(test_metrics, final_scores):
-    print(f"{metric['metric'].__name__}@{metric['k']}:\t{score:.4f}")
+    print(f"{metric.name}:\t{score:.4f}")
