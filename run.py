@@ -133,15 +133,15 @@ def evaluate(model, data_in, data_out, metrics,
     metrics = deepcopy(metrics)
     model.eval()
 
-    full_expected = scipy.sparse.lil_matrix(data_out.shape)
-    full_predicted = scipy.sparse.lil_matrix(data_out.shape)
-    for i, batch in enumerate(generate(
-        batch_size=batch_size,
-        device=device,
-        data_in=data_in,
-        data_out=data_out,
-        samples_perc_per_epoch=samples_perc_per_epoch
-    )):
+    for m in metrics:
+        m['score'] = []
+
+    for batch in generate(batch_size=batch_size,
+                          device=device,
+                          data_in=data_in,
+                          data_out=data_out,
+                          samples_perc_per_epoch=samples_perc_per_epoch
+                          ):
 
         ratings_in = batch.get_ratings_to_dev()
         ratings_out = batch.get_ratings(is_out=True)
@@ -150,15 +150,16 @@ def evaluate(model, data_in, data_out, metrics,
             ratings_in,
             calculate_loss=False).cpu().detach().numpy()
 
-        start = i * batch_size
-        end = (i * batch_size) + batch_size
-        full_predicted[start:end] = ratings_pred
-        full_expected[start:end] = ratings_out
+        if not (data_in is data_out):
+            ratings_pred[batch.get_ratings().nonzero()] = -np.inf
+
+        for m in metrics:
+            m['score'].append(m['metric'](ratings_pred, ratings_out, k=m['k']))
 
     for m in metrics:
-        m.calculate(full_expected.tocsr(), full_predicted.to_csr)
+        m['score'] = np.concatenate(m['score']).mean()
 
-    return [x.value for x in metrics]
+    return [x['score'] for x in metrics]
 
 
 def evaluate_recpack(model, data_in, data_out, metrics,
