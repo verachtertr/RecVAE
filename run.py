@@ -190,7 +190,9 @@ def evaluate_recpack(model, data_in, data_out, metrics,
         print(ratings_pred.shape)
         full_predicted[start:end] = ratings_pred
         full_expected[start:end] = ratings_out
-
+    print(f"prediction shape: {full_expected.shape}")
+    print(f"nonzero predicted users: {len(set(full_predicted.indices[0]))}")
+    print(f"nonzero expected users: {len(set(full_expected.indices[0]))}")
     for m in metrics:
         m.calculate(full_expected.tocsr(), full_predicted.tocsr())
 
